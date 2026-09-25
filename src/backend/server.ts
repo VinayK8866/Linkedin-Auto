@@ -8,6 +8,13 @@ import { generatePostDraft, generateCarouselSlides, generateConnectionNote, gene
 import { cleanDraft, scoreDraft } from './humanizer.js';
 import { startScheduler, isWithinWorkingHours, dispatchNextApprovedItem } from './scheduler.js';
 import { scanCreatorRecentPost } from './automation.js';
+import { compileCarouselToPdf } from './carousel-pdf.js';
+import { compileQuoteCardToPng } from './visual-generator.js';
+
+const MEDIA_DIR = path.resolve(process.cwd(), 'data/generated_media');
+if (!fs.existsSync(MEDIA_DIR)) {
+  fs.mkdirSync(MEDIA_DIR, { recursive: true });
+}
 
 initDatabase();
 startScheduler();
@@ -17,6 +24,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+app.use('/media', express.static(MEDIA_DIR));
 
 // API Status & LinkedIn Session
 app.get('/api/status', async (req, res) => {
@@ -158,6 +166,48 @@ app.post('/api/generate/carousel', async (req, res) => {
     const { topic, numSlides } = req.body;
     const slides = await generateCarouselSlides({ topic, numSlides });
     res.json({ slides });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/carousel/render-pdf', async (req, res) => {
+  try {
+    const { slides, authorName, authorHandle, theme } = req.body;
+    const persona = getSetting('persona', {});
+    const result = await compileCarouselToPdf({
+      slides,
+      authorName: authorName || persona.name || 'Vinay',
+      authorHandle: authorHandle || '@vinay',
+      theme
+    });
+    res.json({
+      success: true,
+      pdfUrl: `/media/${result.filename}`,
+      filename: result.filename,
+      pdfPath: result.pdfPath
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/generate/quote-card', async (req, res) => {
+  try {
+    const { quoteText, authorName, authorRole, theme } = req.body;
+    const persona = getSetting('persona', {});
+    const result = await compileQuoteCardToPng({
+      quoteText,
+      authorName: authorName || persona.name || 'Vinay',
+      authorRole: authorRole || persona.role || 'Tech Founder',
+      theme
+    });
+    res.json({
+      success: true,
+      imageUrl: `/media/${result.filename}`,
+      filename: result.filename,
+      pngPath: result.pngPath
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

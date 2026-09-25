@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Wand2, Shield, PlusCircle, CheckCircle, FileText } from 'lucide-react';
+import { Sparkles, Wand2, Shield, PlusCircle, Image as ImageIcon, Eye, X } from 'lucide-react';
 
 interface PostComposerProps {
   formulas: Array<{ id: string; name: string; bestFor: string }>;
@@ -19,15 +19,18 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   const [customInstructions, setCustomInstructions] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isHumanizing, setIsHumanizing] = useState(false);
+  const [isGeneratingCard, setIsGeneratingCard] = useState(false);
 
   const [draftText, setDraftText] = useState('');
   const [auditScore, setAuditScore] = useState<any>(null);
   const [humanizeReport, setHumanizeReport] = useState<string>('');
+  const [quoteCard, setQuoteCard] = useState<{ imageUrl: string; filename: string; pngPath: string } | null>(null);
 
   const handleGenerate = async () => {
     if (!topic.trim()) return;
     setIsGenerating(true);
     setHumanizeReport('');
+    setQuoteCard(null);
     try {
       const res = await fetch('/api/generate/post', {
         method: 'POST',
@@ -74,6 +77,32 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     }
   };
 
+  const handleGenerateQuoteCard = async () => {
+    if (!draftText.trim()) return;
+    setIsGeneratingCard(true);
+    try {
+      // Use the first 1-2 lines of the post as the quote
+      const firstLines = draftText.split('\n').filter(Boolean).slice(0, 2).join(' ');
+      const quote = firstLines.slice(0, 180);
+
+      const res = await fetch('/api/generate/quote-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteText: quote })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setQuoteCard(data);
+      } else {
+        alert(data.error || 'Failed to generate visual card');
+      }
+    } catch (err: any) {
+      alert(`Visual card error: ${err.message}`);
+    } finally {
+      setIsGeneratingCard(false);
+    }
+  };
+
   const handleQueueSubmit = async () => {
     if (!draftText.trim()) return;
     const formulaObj = formulas.find(f => f.id === selectedFormula);
@@ -84,19 +113,20 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       metadata: {
         formulaId: selectedFormula,
         founderAngleId: selectedAngle,
-        audit: auditScore
+        audit: auditScore,
+        mediaAttachment: quoteCard ? { type: 'image', url: quoteCard.imageUrl, filename: quoteCard.filename } : null
       }
     });
     setTopic('');
     setDraftText('');
     setAuditScore(null);
     setHumanizeReport('');
-    alert('Post added to Review Queue!');
+    setQuoteCard(null);
+    alert('Post added to Review Queue with attached media!');
   };
 
   const charCount = draftText.length;
   const isOverSweetSpot = charCount > 1300;
-  const isUnderSweetSpot = charCount > 0 && charCount < 900 && targetLength === 'medium';
   const foldMarkerIndex = 210;
 
   return (
@@ -188,7 +218,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
         </button>
       </div>
 
-      {/* Right: Draft Preview & Humanizer */}
+      {/* Right: Draft Preview & Visuals */}
       <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
@@ -213,7 +243,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           <div className="form-group">
             <textarea
               className="form-textarea"
-              style={{ minHeight: '260px' }}
+              style={{ minHeight: quoteCard ? '160px' : '230px' }}
               value={draftText}
               onChange={e => setDraftText(e.target.value)}
               placeholder="Your generated or typed post draft will appear here. Edit freely..."
@@ -230,6 +260,25 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             </div>
           )}
 
+          {/* Attached Visual Quote Card */}
+          {quoteCard && (
+            <div style={{ position: 'relative', marginBottom: '0.75rem', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+              <img
+                src={quoteCard.imageUrl}
+                alt="Hook visual quote card"
+                style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', display: 'block' }}
+              />
+              <button
+                className="btn btn-danger btn-sm"
+                onClick={() => setQuoteCard(null)}
+                style={{ position: 'absolute', top: '8px', right: '8px', padding: '4px' }}
+                title="Remove attached visual"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
+
           {humanizeReport && (
             <div style={{ background: 'rgba(0, 0, 0, 0.25)', padding: '0.65rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: '#94A3B8', marginBottom: '0.75rem', fontFamily: 'var(--font-mono)' }}>
               <strong>Humanizer Scrub:</strong> {humanizeReport}
@@ -237,15 +286,25 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
+        <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
           <button
             className="btn btn-secondary"
             onClick={handleHumanizeRun}
             disabled={!draftText.trim() || isHumanizing}
             title="Strip zero-width characters and slop"
           >
-            <Shield size={15} />
-            <span>{isHumanizing ? 'Cleaning...' : 'Run Humanizer Pass'}</span>
+            <Shield size={14} />
+            <span>{isHumanizing ? 'Cleaning...' : 'Humanize'}</span>
+          </button>
+
+          <button
+            className="btn btn-secondary"
+            onClick={handleGenerateQuoteCard}
+            disabled={!draftText.trim() || isGeneratingCard}
+            title="Render visual graphic card from hook"
+          >
+            <ImageIcon size={14} />
+            <span>{isGeneratingCard ? 'Rendering...' : 'Visual Card'}</span>
           </button>
 
           <button
@@ -256,7 +315,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             id="btn-add-queue-post"
           >
             <PlusCircle size={16} />
-            <span>Add to Review Queue</span>
+            <span>Queue Post</span>
           </button>
         </div>
       </div>

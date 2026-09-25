@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layers, Sparkles, PlusCircle } from 'lucide-react';
+import { Layers, Sparkles, PlusCircle, FileDown, CheckCircle, Eye } from 'lucide-react';
 
 interface CarouselBuilderProps {
   onAddToQueue: (item: { type: string; title: string; content: string; metadata: any }) => Promise<void>;
@@ -8,12 +8,16 @@ interface CarouselBuilderProps {
 export const CarouselBuilder: React.FC<CarouselBuilderProps> = ({ onAddToQueue }) => {
   const [topic, setTopic] = useState('');
   const [numSlides, setNumSlides] = useState(8);
+  const [theme, setTheme] = useState<'dark-indigo' | 'cyber-blue' | 'emerald-glow'>('dark-indigo');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCompiling, setIsCompiling] = useState(false);
   const [slides, setSlides] = useState<Array<{ slideNumber: number; headline: string; content: string; slideType: string }>>([]);
+  const [compiledPdf, setCompiledPdf] = useState<{ pdfUrl: string; filename: string; pdfPath: string } | null>(null);
 
   const handleGenerate = async () => {
     if (!topic.trim()) return;
     setIsGenerating(true);
+    setCompiledPdf(null);
     try {
       const res = await fetch('/api/generate/carousel', {
         method: 'POST',
@@ -29,22 +33,49 @@ export const CarouselBuilder: React.FC<CarouselBuilderProps> = ({ onAddToQueue }
     }
   };
 
+  const handleCompilePdf = async () => {
+    if (slides.length === 0) return;
+    setIsCompiling(true);
+    try {
+      const res = await fetch('/api/carousel/render-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slides, theme })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCompiledPdf(data);
+      } else {
+        alert(data.error || 'Failed to compile PDF');
+      }
+    } catch (err: any) {
+      alert(`PDF compile error: ${err.message}`);
+    } finally {
+      setIsCompiling(false);
+    }
+  };
+
   const handleQueueCarousel = async () => {
     if (slides.length === 0) return;
     const fullText = slides.map(s => `[Slide ${s.slideNumber}: ${s.slideType?.toUpperCase()}]\n${s.headline}\n${s.content}`).join('\n\n---\n\n');
     await onAddToQueue({
       type: 'post',
-      title: `Carousel Document Post: ${topic.slice(0, 40)}`,
+      title: `Carousel Document: ${topic.slice(0, 40)}`,
       content: fullText,
       metadata: {
         isCarousel: true,
         slidesCount: slides.length,
-        slides
+        slides,
+        theme,
+        pdfUrl: compiledPdf?.pdfUrl,
+        pdfPath: compiledPdf?.pdfPath,
+        mediaAttachment: compiledPdf ? { type: 'document', url: compiledPdf.pdfUrl, filename: compiledPdf.filename } : null
       }
     });
     setTopic('');
     setSlides([]);
-    alert('Carousel post queued for review!');
+    setCompiledPdf(null);
+    alert('Carousel document post queued for review!');
   };
 
   return (
@@ -53,22 +84,47 @@ export const CarouselBuilder: React.FC<CarouselBuilderProps> = ({ onAddToQueue }
         <div>
           <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Layers size={18} style={{ color: 'var(--accent-indigo)' }} />
-            <span>Document Post (Carousel) Engine</span>
+            <span>Document Post (Carousel) Engine & PDF Compiler</span>
           </h3>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            High-dwell format: 8-12 slides, max 25 words per slide, standalone recap for screenshots.
+            Generates 1080×1350 vertical PDF slides ready for direct upload to LinkedIn.
           </p>
         </div>
 
-        {slides.length > 0 && (
-          <button className="btn btn-primary btn-sm" onClick={handleQueueCarousel}>
-            <PlusCircle size={14} />
-            <span>Add Carousel to Queue</span>
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          {slides.length > 0 && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleCompilePdf}
+              disabled={isCompiling}
+            >
+              <FileDown size={14} />
+              <span>{isCompiling ? 'Rendering PDF...' : 'Compile 1080×1350 PDF'}</span>
+            </button>
+          )}
+
+          {compiledPdf && (
+            <a
+              href={compiledPdf.pdfUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-success btn-sm"
+            >
+              <Eye size={14} />
+              <span>Preview / Download PDF</span>
+            </a>
+          )}
+
+          {slides.length > 0 && (
+            <button className="btn btn-primary btn-sm" onClick={handleQueueCarousel}>
+              <PlusCircle size={14} />
+              <span>Queue Carousel Post</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr auto', gap: '1rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 1.2fr 1.2fr auto', gap: '1rem', marginBottom: '1.5rem' }}>
         <input
           type="text"
           className="form-input"
@@ -85,15 +141,50 @@ export const CarouselBuilder: React.FC<CarouselBuilderProps> = ({ onAddToQueue }
           <option value={10}>10 Slides (Standard)</option>
           <option value={12}>12 Slides (Deep Framework)</option>
         </select>
+        <select
+          className="form-select"
+          value={theme}
+          onChange={e => setTheme(e.target.value as any)}
+        >
+          <option value="dark-indigo">Dark Indigo Glow</option>
+          <option value="cyber-blue">Cyber Blue Glow</option>
+          <option value="emerald-glow">Emerald Glow</option>
+        </select>
         <button
           className="btn btn-primary"
           onClick={handleGenerate}
           disabled={!topic.trim() || isGenerating}
         >
           <Sparkles size={15} />
-          <span>{isGenerating ? 'Structuring...' : 'Generate Carousel'}</span>
+          <span>{isGenerating ? 'Structuring...' : 'Generate Slides'}</span>
         </button>
       </div>
+
+      {compiledPdf && (
+        <div style={{
+          background: 'rgba(16, 185, 129, 0.1)',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          borderRadius: 'var(--radius-md)',
+          padding: '0.85rem 1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '1.5rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#34D399', fontSize: '0.88rem' }}>
+            <CheckCircle size={16} />
+            <span>Document PDF compiled successfully (1080×1350px 4:5 vertical). Ready to publish.</span>
+          </div>
+          <a
+            href={compiledPdf.pdfUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: '#38BDF8', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'underline' }}
+          >
+            {compiledPdf.filename}
+          </a>
+        </div>
+      )}
 
       {slides.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
